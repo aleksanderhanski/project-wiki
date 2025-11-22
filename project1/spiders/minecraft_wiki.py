@@ -1,15 +1,26 @@
 import scrapy
 
 
-class MinecraftWikiSpider(scrapy.Spider):
-    name = "minecraft-wiki"
-    allowed_domains = ["minecraft.fandom.com"]
-    start_urls = ["https://minecraft.fandom.com/wiki/Gameplay"]
+class WikipediaSpider(scrapy.Spider):
+    name = "wikipedia"
+    allowed_domains = ["en.wikipedia.org"]
+    start_urls = ["https://en.wikipedia.org/wiki/Albert_Camus"]
+    
+    custom_settings = {
+        'USER_AGENT': 'Olek-and-Karol',
+        'DEPTH_LIMIT': 2,
+        'CLOSESPIDER_PAGECOUNT': 100,
+        'DOWNLOAD_DELAY': 1,
+    }
 
     def parse(self, response):
         content = response.css("#mw-content-text .mw-parser-output")
 
-        text = content.css("::text").getall()
+        # Exclude tables, references, navboxes
+        for element in content.css('table, .reflist, .navbox, .mw-editsection'):
+            element.drop()
+
+        text = content.css("p::text, p a::text").getall()
         text = " ".join(t.strip() for t in text if t.strip())
 
         yield {

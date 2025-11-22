@@ -1,0 +1,200 @@
+import json
+import csv
+import re
+
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
+
+from nltk.tokenize import word_tokenize, wordpunct_tokenize
+
+import requests
+from bs4 import BeautifulSoup
+
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
+import numpy as np
+import pandas as pd
+
+
+
+def clean_text(text):
+    # Remove URLs
+    text = re.sub(r'https?://\S+', '', text)
+
+    # Remove edition-only tags like [Bedrock Edition only]
+    #text = re.sub(r'\[\s*\w+(\s+\w+)*\s+only\s*\]', '', text, flags=re.IGNORECASE)
+    # maybe too agressive, commented out for now
+
+    # Remove reference brackets like [1], [2], etc.
+    text = re.sub(r'\[\s*\d+\s*\]', '', text)
+    
+    # Remove standalone brackets like [ ]
+    text = re.sub(r'\[\s*\]', '', text)
+    
+    # Remove excessive whitespace
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remove spaces before punctuation
+    text = re.sub(r'\s+([.,!?])', r'\1', text)
+
+    # Remove section headers pattern (words followed by [ ])
+    text = re.sub(r'(\w+)\s*\[\s*\]', r'\1', text)
+
+    # Remove lines that are just navigation/menu items
+    text = re.sub(r'\b\d+(\.\d+)*\s+[A-Z][a-z]+\b', '', text)  # Like "9.1 Mash-up Packs"
+    
+    return text.strip()
+
+
+def process_text(text):
+
+    lemmatizer = WordNetLemmatizer()
+    
+    stop_words = set(stopwords.words('english'))
+    
+    tokens = word_tokenize(text.lower())
+    
+    processed_tokens = [
+        lemmatizer.lemmatize(token)
+        for token in tokens
+        if token.isalpha() and token not in stop_words
+    ]
+    
+    return processed_tokens
+
+
+def download_article_text(filename='project1/input_articles.csv'):
+    headers = {
+        'User-Agent': 'Olek-and-Karol'
+    }
+
+    rows = []
+
+    while True:
+        url = input("Enter article URL (or 'q' to quit): ")
+        if url.lower() == 'q':
+            break
+        
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        parsed = BeautifulSoup(response.text, 'html.parser')
+        
+        text = ''
+        for p in parsed.select('p'):
+            text += p.get_text() + ' '
+
+        cleaned_text = clean_text(text)
+        processed_tokens = process_text(cleaned_text)
+        
+        rows.append({
+            'url': url,
+            'cleaned_text': cleaned_text,
+            'processed_tokens': ' '.join(processed_tokens)
+        })
+
+    df = pd.DataFrame(rows)
+    df.to_csv(filename, index=False, encoding='utf-8')
+
+
+def find_similar_articles(input_csv='project1/input_articles.csv',
+                          base_csv='project1/minecraft_wiki_processed.csv',
+                          top_k=5,
+                          method='hybrid',
+                          hybrid_weight=0.5):
+    """    
+    method: 'tfidf', 'semantic', or 'hybrid'
+    hybrid_weight: Weight for tf-idf in hybrid mode (0-1), semantic gets 1-weight
+    """
+    df = pd.read_csv(base_csv)
+    new_df = pd.read_csv(input_csv)
+    
+    base_tokens = df['processed_tokens'].fillna('')
+    base_texts = df['cleaned_text'].fillna('')
+    
+    input_tokens = new_df['processed_tokens'].dropna().astype(str)
+    input_tokens = input_tokens[input_tokens.str.strip() != '']
+    
+    input_texts = new_df['cleaned_text'].dropna().astype(str)
+    input_texts = input_texts[input_texts.str.strip() != '']
+    
+    if input_tokens.empty and input_texts.empty:
+        print("No valid input articles found")
+        return []
+
+    sims = None
+
+    if method in ('tfidf', 'hybrid'):
+        tfidf_sims = compute_tfidf_similarity(input_tokens, base_tokens)
+        sims = tfidf_sims
+
+    if method in ('semantic', 'hybrid'):
+        semantic_sims = compute_semantic_similarity(input_texts, base_texts)
+        sims = semantic_sims
+
+    if method == 'hybrid':
+        # normalize both to 0-1 range before combining
+        tfidf_norm = normalize_scores(tfidf_sims)
+        semantic_norm = normalize_scores(semantic_sims)
+        sims = hybrid_weight * tfidf_norm + (1 - hybrid_weight) * semantic_norm
+
+    # exclude input articles from results
+    input_urls = set(new_df['url'].dropna())
+    mask = ~df['url'].isin(input_urls)
+    masked_sims = np.where(mask, sims, -1)
+    
+    top_idx = masked_sims.argsort()[-top_k:][::-1]
+
+    results = [
+        {
+            'url': df.iloc[idx].get('url', ''),
+            'similarity': float(sims[idx]),
+            'preview': str(df.iloc[idx].get('cleaned_text', ''))[:300]
+        }
+        for idx in top_idx
+    ]
+
+
+    print(f"\nRECOMMENDATIONS (method: {method}):\n")
+    for i, r in enumerate(results, 1):
+        print(f"\n{i}. {r['url']}")
+        print(f"Similarity score: {r['similarity']:.4f}")
+        print(f"Preview: {r['preview']}...")
+        print("-" * 40)
+
+
+def compute_tfidf_similarity(input_tokens, base_tokens):
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform(base_tokens)
+    input_vectors = vectorizer.transform(input_tokens)
+    
+    all_sims = cosine_similarity(input_vectors, tfidf_matrix)
+    return all_sims.mean(axis=0)
+
+
+def compute_semantic_similarity(input_texts, base_texts):
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    base_embeddings = model.encode(base_texts.tolist(), show_progress_bar=False)
+    input_embeddings = model.encode(input_texts.tolist(), show_progress_bar=False)
+    
+    all_sims = cosine_similarity(input_embeddings, base_embeddings)
+    return all_sims.mean(axis=0)
+
+
+def normalize_scores(scores):
+    #normalize to 0-1 range
+    min_score = scores.min()
+    max_score = scores.max()
+    
+    if max_score == min_score:
+        return np.zeros_like(scores)
+    
+    return (scores - min_score) / (max_score - min_score)
+
+
+download_article_text(filename='input_articles.csv')
+
+find_similar_articles('input_articles.csv', 'wiki_processed.csv', method='tfidf', top_k=5)
