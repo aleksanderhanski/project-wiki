@@ -159,8 +159,10 @@ def find_similar_articles(input_csv='input_articles.csv',
         for local_idx, idx in zip(top_local_idx, top_idx)
     ]
 
-
-    print(f"\nRECOMMENDATIONS:\n")
+    print("\nInput articles:")
+    for url in input_urls:
+        print(f"- {url}")
+    print(f"\nRECOMMENDATIONS:")
     for i, r in enumerate(results, 1):
         print(f"\n{i}. {r['url']}")
         print(f"Similarity score: {r['similarity']:.4f}")
