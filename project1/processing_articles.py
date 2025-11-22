@@ -55,7 +55,7 @@ def process_text(text):
 
 
 def process_json_to_csv(input_filename, output_filename):
-    with open(input_filename, 'r') as f:
+    with open(input_filename, 'r', encoding="utf-8") as f:
         data = json.load(f)
     
     rows = []
