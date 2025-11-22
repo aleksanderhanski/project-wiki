@@ -102,7 +102,7 @@ def find_similar_articles(input_csv='input_articles.csv',
                                     base_csv='wiki_processed.csv',
                                     top_k=5,
                                     candidate_count=50,
-                                    hybrid_weight=0.5):
+                                    hybrid_weight=0.2):
     """
     Two-stage similarity search: TF-IDF to narrow candidates, then hybrid (tfidf and semantic) to rank best articles.
     
@@ -199,4 +199,4 @@ def normalize_scores(scores):
 
 download_article_text(filename='input_articles.csv')
 
-find_similar_articles('input_articles.csv', 'wiki_processed.csv', top_k=5)
+find_similar_articles('input_articles.csv', 'wiki_processed.csv', top_k=10, hybrid_weight=1.0)
