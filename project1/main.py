@@ -131,14 +131,14 @@ def find_similar_articles(input_csv='input_articles.csv',
     mask = ~df['url'].isin(input_urls)
 
     print(input_tokens)
-    # Stage 1: TF-IDF to get candidates
+    # stage 1: tfidf to get candidates
     tfidf_sims_all = compute_tfidf_similarity(input_tokens, base_tokens)
     print(tfidf_sims_all)
     # exclude input articles
     masked_tfidf = np.where(mask, tfidf_sims_all, -1)
     candidate_idx = masked_tfidf.argsort()[-candidate_count:]
 
-    # Stage 2: Hybrid scoring on candidates only
+    # stage 2: hybrid scoring on candidates only
     candidate_tokens = base_tokens.iloc[candidate_idx]
     candidate_texts = base_texts.iloc[candidate_idx]
     
@@ -162,14 +162,12 @@ def find_similar_articles(input_csv='input_articles.csv',
     ]
 
 
-    print(f"\nRECOMMENDATIONS (two-stage hybrid):")
-    print("=" * 80)
+    print(f"\nRECOMMENDATIONS:\n")
     for i, r in enumerate(results, 1):
         print(f"\n{i}. {r['url']}")
         print(f"Similarity score: {r['similarity']:.4f}")
         print(f"Preview: {r['preview']}...")
         print("-" * 40)
-    return results
 
 
 def compute_tfidf_similarity(input_tokens, base_tokens):
