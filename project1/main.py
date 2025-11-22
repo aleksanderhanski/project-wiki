@@ -130,10 +130,8 @@ def find_similar_articles(input_csv='input_articles.csv',
     input_urls = set(new_df['url'].dropna())
     mask = ~df['url'].isin(input_urls)
 
-    print(input_tokens)
     # stage 1: tfidf to get candidates
     tfidf_sims_all = compute_tfidf_similarity(input_tokens, base_tokens)
-    print(tfidf_sims_all)
     # exclude input articles
     masked_tfidf = np.where(mask, tfidf_sims_all, -1)
     candidate_idx = masked_tfidf.argsort()[-candidate_count:]
