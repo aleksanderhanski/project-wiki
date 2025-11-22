@@ -1,4 +1,4 @@
-Aleksander Hański 160315 and Karol Okoń ??????
+Aleksander Hański 160315 and Karol Okoń 160323
 ***
 in order to perform scraping enter command: **scrapy crawl wikipedia -o output.json**
 ***
