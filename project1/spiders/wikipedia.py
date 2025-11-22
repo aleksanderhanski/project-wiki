@@ -9,8 +9,6 @@ class WikipediaSpider(scrapy.Spider):
     custom_settings = {
         'USER_AGENT': 'Olek-and-Karol',
         'DEPTH_LIMIT': 2,
-        'CLOSESPIDER_PAGECOUNT': 100,
-        'DOWNLOAD_DELAY': 1,
     }
 
     def parse(self, response):
