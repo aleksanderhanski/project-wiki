@@ -4,7 +4,6 @@ import re
 
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
-
 from nltk.tokenize import word_tokenize, wordpunct_tokenize
 
 import requests
@@ -99,15 +98,19 @@ def download_article_text(filename='project1/input_articles.csv'):
     df.to_csv(filename, index=False, encoding='utf-8')
 
 
-def find_similar_articles(input_csv='project1/input_articles.csv',
-                          base_csv='project1/minecraft_wiki_processed.csv',
-                          top_k=5,
-                          method='hybrid',
-                          hybrid_weight=0.5):
-    """    
-    method: 'tfidf', 'semantic', or 'hybrid'
-    hybrid_weight: Weight for tf-idf in hybrid mode (0-1), semantic gets 1-weight
+def find_similar_articles(input_csv='input_articles.csv',
+                                    base_csv='wiki_processed.csv',
+                                    top_k=5,
+                                    candidate_count=50,
+                                    hybrid_weight=0.5):
     """
+    Two-stage similarity search: TF-IDF to narrow candidates, then hybrid (tfidf and semantic) to rank best articles.
+    
+    top_k: Number of recommendations to return
+    candidate_count: Number of candidates to keep after TF-IDF stage
+    hybrid_weight: Weight for TF-IDF in hybrid scoring (0-1)
+    """
+    
     df = pd.read_csv(base_csv)
     new_df = pd.read_csv(input_csv)
     
@@ -115,8 +118,7 @@ def find_similar_articles(input_csv='project1/input_articles.csv',
     base_texts = df['cleaned_text'].fillna('')
     
     input_tokens = new_df['processed_tokens'].dropna().astype(str)
-    input_tokens = input_tokens[input_tokens.str.strip() != '']
-    
+    input_tokens = input_tokens[input_tokens.str.strip() != '']    
     input_texts = new_df['cleaned_text'].dropna().astype(str)
     input_texts = input_texts[input_texts.str.strip() != '']
     
@@ -124,45 +126,50 @@ def find_similar_articles(input_csv='project1/input_articles.csv',
         print("No valid input articles found")
         return []
 
-    sims = None
-
-    if method in ('tfidf', 'hybrid'):
-        tfidf_sims = compute_tfidf_similarity(input_tokens, base_tokens)
-        sims = tfidf_sims
-
-    if method in ('semantic', 'hybrid'):
-        semantic_sims = compute_semantic_similarity(input_texts, base_texts)
-        sims = semantic_sims
-
-    if method == 'hybrid':
-        # normalize both to 0-1 range before combining
-        tfidf_norm = normalize_scores(tfidf_sims)
-        semantic_norm = normalize_scores(semantic_sims)
-        sims = hybrid_weight * tfidf_norm + (1 - hybrid_weight) * semantic_norm
-
-    # exclude input articles from results
+    # Exclude input articles
     input_urls = set(new_df['url'].dropna())
     mask = ~df['url'].isin(input_urls)
-    masked_sims = np.where(mask, sims, -1)
+
+    print(input_tokens)
+    # Stage 1: TF-IDF to get candidates
+    tfidf_sims_all = compute_tfidf_similarity(input_tokens, base_tokens)
+    print(tfidf_sims_all)
+    # exclude input articles
+    masked_tfidf = np.where(mask, tfidf_sims_all, -1)
+    candidate_idx = masked_tfidf.argsort()[-candidate_count:]
+
+    # Stage 2: Hybrid scoring on candidates only
+    candidate_tokens = base_tokens.iloc[candidate_idx]
+    candidate_texts = base_texts.iloc[candidate_idx]
     
-    top_idx = masked_sims.argsort()[-top_k:][::-1]
+    tfidf_sims = compute_tfidf_similarity(input_tokens, candidate_tokens)
+    semantic_sims = compute_semantic_similarity(input_texts, candidate_texts)
+    
+    tfidf_norm = normalize_scores(tfidf_sims)
+    semantic_norm = normalize_scores(semantic_sims)
+    combined_sims = hybrid_weight * tfidf_norm + (1 - hybrid_weight) * semantic_norm
+
+    top_local_idx = combined_sims.argsort()[-top_k:][::-1]
+    top_idx = candidate_idx[top_local_idx]
 
     results = [
         {
             'url': df.iloc[idx].get('url', ''),
-            'similarity': float(sims[idx]),
-            'preview': str(df.iloc[idx].get('cleaned_text', ''))[:300]
+            'similarity': float(combined_sims[local_idx]),
+            'preview': str(df.iloc[idx].get('cleaned_text', ''))[:200]
         }
-        for idx in top_idx
+        for local_idx, idx in zip(top_local_idx, top_idx)
     ]
 
 
-    print(f"\nRECOMMENDATIONS (method: {method}):\n")
+    print(f"\nRECOMMENDATIONS (two-stage hybrid):")
+    print("=" * 80)
     for i, r in enumerate(results, 1):
         print(f"\n{i}. {r['url']}")
         print(f"Similarity score: {r['similarity']:.4f}")
         print(f"Preview: {r['preview']}...")
         print("-" * 40)
+    return results
 
 
 def compute_tfidf_similarity(input_tokens, base_tokens):
@@ -185,7 +192,6 @@ def compute_semantic_similarity(input_texts, base_texts):
 
 
 def normalize_scores(scores):
-    #normalize to 0-1 range
     min_score = scores.min()
     max_score = scores.max()
     
@@ -197,4 +203,4 @@ def normalize_scores(scores):
 
 download_article_text(filename='input_articles.csv')
 
-find_similar_articles('input_articles.csv', 'wiki_processed.csv', method='tfidf', top_k=5)
+find_similar_articles('input_articles.csv', 'wiki_processed.csv', top_k=5)
